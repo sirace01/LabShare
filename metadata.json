@@ -1,0 +1,9 @@
+{
+  "name": "LabCast - Local Screen Sharing",
+  "description": "A lightweight, real-time screen sharing application optimized for computer laboratories using WebRTC and Socket.io.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera",
+    "display-capture"
+  ]
+}
