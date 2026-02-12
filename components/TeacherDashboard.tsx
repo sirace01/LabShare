@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 import React, { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { ArrowLeft, MonitorOff, Users, Radio, AlertCircle } from 'lucide-react';
@@ -21,7 +20,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack }) =>
   // Initialize Socket and WebRTC Listeners
   useEffect(() => {
     // Determine socket URL: Use env var if present (for Vercel + External Server), otherwise default to local relative path
-    const socketUrl = import.meta.env.VITE_SERVER_URL || '/';
+    const socketUrl = (import.meta as any).env.VITE_SERVER_URL || '/';
     
     socketRef.current = io(socketUrl, {
       transports: ['websocket', 'polling']
@@ -31,7 +30,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack }) =>
 
     socket.on('connect_error', (err) => {
       console.error("Socket connection error:", err);
-      if (!import.meta.env.VITE_SERVER_URL) {
+      if (!(import.meta as any).env.VITE_SERVER_URL) {
          setError("Cannot connect to server. If deployed on Vercel, you must host the 'server.js' separately and set VITE_SERVER_URL.");
       }
     });

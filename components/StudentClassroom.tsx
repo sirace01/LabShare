@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 import React, { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { ArrowLeft, Maximize2, Minimize2, Wifi, WifiOff } from 'lucide-react';
@@ -24,7 +23,7 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack }) =>
 
   useEffect(() => {
     // Determine socket URL: Use env var if present (for Vercel + External Server), otherwise default to local relative path
-    const socketUrl = import.meta.env.VITE_SERVER_URL || '/';
+    const socketUrl = (import.meta as any).env.VITE_SERVER_URL || '/';
 
     socketRef.current = io(socketUrl, {
       transports: ['websocket', 'polling']
