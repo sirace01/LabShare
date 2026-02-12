@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { ArrowLeft, MonitorOff, Users, Radio, AlertCircle } from 'lucide-react';
+import { ArrowLeft, MonitorOff, Users, Radio, AlertCircle, Settings } from 'lucide-react';
 import { RTC_CONFIG, PeerConnectionMap } from '../types';
 
 interface TeacherDashboardProps {
@@ -22,6 +22,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack, serv
   useEffect(() => {
     console.log("Connecting to signaling server:", serverUrl);
     
+    // Check if user is trying to connect to a static host (like Vercel) as the backend
+    const isVercel = window.location.hostname.includes('vercel.app');
+    const isSameHost = serverUrl.includes(window.location.hostname);
+    
+    if (isVercel && isSameHost) {
+      setError("You are trying to connect to the Vercel frontend as a backend. Vercel only hosts the UI. Please deploy 'server/server.js' to a service like Render or Railway and update the URL in settings.");
+      return;
+    }
+
     socketRef.current = io(serverUrl, {
       transports: ['websocket', 'polling']
     });
@@ -30,7 +39,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack, serv
 
     socket.on('connect_error', (err) => {
       console.error("Socket connection error:", err);
-      setError(`Connection failed to ${serverUrl}. Please check the URL in settings.`);
+      // More descriptive error
+      if (isSameHost) {
+         setError("Connection failed. Since you are connecting to the same origin, ensure the backend server is actually running on this port.");
+      } else {
+         setError(`Connection failed to ${serverUrl}. Please check if the backend server is running and accessible.`);
+      }
     });
 
     socket.on('connect', () => {
@@ -44,7 +58,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack, serv
       console.log('New watcher connected:', id);
       
       // If we are not broadcasting yet, we can't accept the watcher.
-      // They will be notified to retry when we emit 'broadcaster' in startBroadcast()
       if (!localStreamRef.current) {
         console.warn('No local stream active, ignoring watcher for now:', id);
         return;
@@ -109,7 +122,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack, serv
         localStreamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [serverUrl]); // Re-connect if serverUrl changes
+  }, [serverUrl]);
 
   const startBroadcast = async () => {
     setError(null);
@@ -121,7 +134,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack, serv
           height: { ideal: 1080 },
           frameRate: { ideal: 30 }
         },
-        audio: true // Capture system audio if available
+        audio: true
       });
 
       localStreamRef.current = stream;
@@ -131,12 +144,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack, serv
       }
 
       setIsBroadcasting(true);
-
-      // CRITICAL FIX: Announce we are live! 
-      // This tells students who joined *before* we started to re-send their 'watcher' request.
       socketRef.current?.emit('broadcaster');
 
-      // Handle stream stop via browser UI
       stream.getVideoTracks()[0].onended = () => {
         stopBroadcast();
       };
@@ -156,7 +165,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack, serv
       videoRef.current.srcObject = null;
     }
     
-    // Close all peer connections
     Object.values(peerConnectionsRef.current).forEach((pc) => (pc as RTCPeerConnection).close());
     peerConnectionsRef.current = {};
     setViewerCount(0);
@@ -165,7 +173,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack, serv
 
   return (
     <div className="flex flex-col h-screen bg-slate-900">
-      {/* Header */}
       <header className="bg-slate-800 border-b border-slate-700 p-4 flex items-center justify-between shadow-md z-10">
         <div className="flex items-center gap-4">
           <button 
@@ -208,12 +215,22 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack, serv
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 p-6 flex flex-col items-center justify-center overflow-hidden">
+      <main className="flex-1 p-6 flex flex-col items-center justify-center overflow-hidden relative">
         {error && (
-           <div className="absolute top-24 bg-red-500/10 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg flex items-center gap-3 animate-in fade-in slide-in-from-top-4 z-50">
-             <AlertCircle size={20} />
-             {error}
+           <div className="absolute top-6 mx-auto max-w-2xl bg-red-500/10 border border-red-500/50 text-red-200 px-6 py-4 rounded-xl flex flex-col gap-3 animate-in fade-in slide-in-from-top-4 z-50 shadow-2xl backdrop-blur-md">
+             <div className="flex items-center gap-3">
+               <AlertCircle className="shrink-0 text-red-400" size={24} />
+               <span className="font-medium">{error}</span>
+             </div>
+             <div className="flex justify-end">
+               <button 
+                 onClick={onBack}
+                 className="flex items-center gap-2 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-white rounded-lg transition-colors text-sm font-semibold"
+               >
+                 <Settings size={16} />
+                 Configure Server URL
+               </button>
+             </div>
            </div>
         )}
 
@@ -222,7 +239,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack, serv
             ref={videoRef}
             className="w-full h-full object-contain bg-slate-950"
             autoPlay
-            muted // Muted locally to prevent echo
+            muted
             playsInline
           />
           
@@ -235,10 +252,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack, serv
               <p className="text-slate-500">Click the button above to start sharing your screen.</p>
             </div>
           )}
-        </div>
-        
-        <div className="mt-6 text-slate-500 text-sm">
-          Preview of your broadcast. You are sharing this screen with the class.
         </div>
       </main>
     </div>

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Monitor, Users, Settings, Server } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Monitor, Users, Settings, Server, AlertTriangle } from 'lucide-react';
 
 interface RoleSelectionProps {
   onSelectTeacher: () => void;
@@ -15,6 +15,17 @@ export const RoleSelection: React.FC<RoleSelectionProps> = ({
   setServerUrl 
 }) => {
   const [showSettings, setShowSettings] = useState(false);
+  const [isVercel, setIsVercel] = useState(false);
+
+  useEffect(() => {
+    // Auto-detect Vercel environment
+    const onVercel = window.location.hostname.includes('vercel.app');
+    setIsVercel(onVercel);
+    // Auto-show settings if on Vercel and URL is still default
+    if (onVercel && serverUrl.includes(window.location.hostname)) {
+      setShowSettings(true);
+    }
+  }, []);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-gradient-to-br from-slate-900 to-slate-800 relative">
@@ -28,7 +39,6 @@ export const RoleSelection: React.FC<RoleSelectionProps> = ({
       </div>
 
       <div className="grid md:grid-cols-2 gap-8 max-w-4xl w-full z-10">
-        {/* Teacher Card */}
         <button
           onClick={onSelectTeacher}
           className="group relative flex flex-col items-center p-8 bg-slate-800/50 rounded-2xl border border-slate-700 hover:border-indigo-500 transition-all duration-300 hover:bg-slate-800 hover:shadow-2xl hover:shadow-indigo-500/10 hover:-translate-y-1"
@@ -42,7 +52,6 @@ export const RoleSelection: React.FC<RoleSelectionProps> = ({
           </p>
         </button>
 
-        {/* Student Card */}
         <button
           onClick={onSelectStudent}
           className="group relative flex flex-col items-center p-8 bg-slate-800/50 rounded-2xl border border-slate-700 hover:border-cyan-500 transition-all duration-300 hover:bg-slate-800 hover:shadow-2xl hover:shadow-cyan-500/10 hover:-translate-y-1"
@@ -57,7 +66,6 @@ export const RoleSelection: React.FC<RoleSelectionProps> = ({
         </button>
       </div>
       
-      {/* Footer / Settings */}
       <div className="mt-16 w-full max-w-md">
         <button 
           onClick={() => setShowSettings(!showSettings)}
@@ -69,6 +77,16 @@ export const RoleSelection: React.FC<RoleSelectionProps> = ({
 
         {showSettings && (
           <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 animate-in fade-in slide-in-from-bottom-2">
+            
+            {isVercel && (
+              <div className="mb-4 bg-yellow-500/10 border border-yellow-500/20 rounded p-3 text-xs text-yellow-200 flex gap-2">
+                <AlertTriangle size={16} className="shrink-0" />
+                <div>
+                  <strong>Hosting Note:</strong> Vercel only hosts the frontend. You must deploy the <code>server/server.js</code> file to a backend service like <strong>Render, Railway, or Glitch</strong> and paste that URL below.
+                </div>
+              </div>
+            )}
+
             <label className="block text-xs uppercase font-bold text-slate-500 mb-2 flex items-center gap-2">
               <Server size={12} />
               Signaling Server URL
@@ -78,11 +96,8 @@ export const RoleSelection: React.FC<RoleSelectionProps> = ({
               value={serverUrl}
               onChange={(e) => setServerUrl(e.target.value)}
               className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-300 focus:outline-none focus:border-indigo-500 transition-colors"
-              placeholder="e.g. https://my-socket-server.onrender.com"
+              placeholder="e.g. https://my-labcast-server.onrender.com"
             />
-            <p className="text-xs text-slate-500 mt-2">
-              If deploying the frontend to Vercel, you must host the <code>server.js</code> separately (e.g., Render, Railway) and paste the URL here.
-            </p>
           </div>
         )}
 

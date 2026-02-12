@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { ArrowLeft, Maximize2, Minimize2, Wifi, WifiOff } from 'lucide-react';
+import { ArrowLeft, Maximize2, Minimize2, Wifi, WifiOff, AlertCircle, Settings } from 'lucide-react';
 import { RTC_CONFIG } from '../types';
 
 interface StudentClassroomProps {
@@ -12,18 +12,26 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack, serv
   const [isConnected, setIsConnected] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [streamActive, setStreamActive] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
-  // CRITICAL FIX: Queue candidates until Remote Description is set to prevent "StateError"
   const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
   const isRemoteDescriptionSet = useRef(false);
 
   useEffect(() => {
-    // Determine socket URL: Use prop passed from App component
+    // Check if user is trying to connect to a static host (like Vercel) as the backend
+    const isVercel = window.location.hostname.includes('vercel.app');
+    const isSameHost = serverUrl.includes(window.location.hostname);
+    
+    if (isVercel && isSameHost) {
+      setError("Configuration Error: Vercel only hosts the frontend. Please configure a separate backend URL in settings.");
+      // We still attempt to connect in case they really have some proxy setup, but warning is shown.
+    }
+
     socketRef.current = io(serverUrl, {
       transports: ['websocket', 'polling']
     });
@@ -33,13 +41,18 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack, serv
     socket.on('connect', () => {
       console.log('Student connected to signaling server');
       setIsConnected(true);
-      // Initiate request to watch
+      setError(null);
       socket.emit('watcher');
     });
 
     socket.on('connect_error', (err) => {
         console.error("Connection error:", err);
         setIsConnected(false);
+        if (isSameHost && isVercel) {
+           // Keep the specific error
+        } else {
+           setError(`Unable to connect to server at ${serverUrl}`);
+        }
     });
 
     socket.on('disconnect', () => {
@@ -49,8 +62,6 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack, serv
     });
 
     socket.on('offer', async (id: string, description: RTCSessionDescriptionInit) => {
-      console.log('Received offer from broadcaster:', id);
-      
       const peerConnection = new RTCPeerConnection(RTC_CONFIG);
       peerConnectionRef.current = peerConnection;
       isRemoteDescriptionSet.current = false;
@@ -62,7 +73,6 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack, serv
       };
 
       peerConnection.ontrack = (event) => {
-        console.log('Received remote track');
         if (videoRef.current) {
           videoRef.current.srcObject = event.streams[0];
           setStreamActive(true);
@@ -73,7 +83,6 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack, serv
         await peerConnection.setRemoteDescription(description);
         isRemoteDescriptionSet.current = true;
         
-        // Process queued candidates now that description is set
         iceCandidateQueue.current.forEach(async (candidate) => {
           try {
             await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
@@ -81,7 +90,7 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack, serv
             console.error('Error adding queued candidate:', e);
           }
         });
-        iceCandidateQueue.current = []; // Clear queue
+        iceCandidateQueue.current = [];
 
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
@@ -98,14 +107,12 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack, serv
         if (isRemoteDescriptionSet.current) {
           pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error(e));
         } else {
-          // Queue candidates if arrived before offer processing is complete
           iceCandidateQueue.current.push(candidate);
         }
       }
     });
 
     socket.on('broadcaster', () => {
-      // If a broadcaster joins/rejoins, we re-emit watcher to reconnect
       socket.emit('watcher');
     });
 
@@ -119,7 +126,6 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack, serv
       }
     });
 
-    // Mobile/Tablet viewport fix
     window.addEventListener('resize', handleResize);
 
     return () => {
@@ -130,14 +136,12 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack, serv
   }, [serverUrl]);
 
   const handleResize = () => {
-    // Optional logic to handle resizing if needed beyond CSS
+    // Optional logic
   };
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen().catch((err) => {
-        console.error(`Error attempting to enable fullscreen: ${err.message}`);
-      });
+      containerRef.current?.requestFullscreen().catch(() => {});
       setIsFullscreen(true);
     } else {
       document.exitFullscreen();
@@ -146,8 +150,23 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack, serv
   };
 
   return (
-    <div ref={containerRef} className="flex flex-col h-screen bg-black">
-      {/* Overlay Controls (visible on hover or when UI needed) */}
+    <div ref={containerRef} className="flex flex-col h-screen bg-black relative">
+      {/* Error Overlay */}
+      {error && !isConnected && (
+         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 bg-red-900/90 border border-red-500/50 text-white px-6 py-4 rounded-xl flex flex-col items-center gap-2 backdrop-blur-md shadow-2xl max-w-md text-center">
+            <AlertCircle size={32} className="text-red-400" />
+            <h3 className="font-bold text-lg">Connection Error</h3>
+            <p className="text-sm text-red-100">{error}</p>
+            <button 
+              onClick={onBack}
+              className="mt-2 flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors text-sm"
+            >
+              <Settings size={14} />
+              Change Server URL
+            </button>
+         </div>
+      )}
+
       <div className={`absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300 z-10 ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -186,7 +205,6 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack, serv
         </div>
       </div>
 
-      {/* Video Container */}
       <div className="flex-1 flex items-center justify-center relative overflow-hidden">
         {!streamActive && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 z-0">
