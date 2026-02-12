@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import React, { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { ArrowLeft, MonitorOff, Users, Radio, AlertCircle } from 'lucide-react';
@@ -19,15 +20,25 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack }) =>
 
   // Initialize Socket and WebRTC Listeners
   useEffect(() => {
-    // Note: In a real deployment, replace window.location.hostname with your server IP if not serving from the same origin
-    socketRef.current = io('/', {
-      transports: ['websocket', 'polling'] // Force websocket if possible
+    // Determine socket URL: Use env var if present (for Vercel + External Server), otherwise default to local relative path
+    const socketUrl = import.meta.env.VITE_SERVER_URL || '/';
+    
+    socketRef.current = io(socketUrl, {
+      transports: ['websocket', 'polling']
     });
 
     const socket = socketRef.current;
 
+    socket.on('connect_error', (err) => {
+      console.error("Socket connection error:", err);
+      if (!import.meta.env.VITE_SERVER_URL) {
+         setError("Cannot connect to server. If deployed on Vercel, you must host the 'server.js' separately and set VITE_SERVER_URL.");
+      }
+    });
+
     socket.on('connect', () => {
       console.log('Teacher connected to signaling server');
+      setError(null);
       // Announce presence as broadcaster
       socket.emit('broadcaster');
     });
@@ -35,8 +46,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack }) =>
     socket.on('watcher', async (id: string) => {
       console.log('New watcher connected:', id);
       
+      // If we are not broadcasting yet, we can't accept the watcher.
+      // They will be notified to retry when we emit 'broadcaster' in startBroadcast()
       if (!localStreamRef.current) {
-        console.warn('No local stream active, cannot connect watcher');
+        console.warn('No local stream active, ignoring watcher for now:', id);
         return;
       }
 
@@ -122,15 +135,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack }) =>
 
       setIsBroadcasting(true);
 
+      // CRITICAL FIX: Announce we are live! 
+      // This tells students who joined *before* we started to re-send their 'watcher' request.
+      socketRef.current?.emit('broadcaster');
+
       // Handle stream stop via browser UI
       stream.getVideoTracks()[0].onended = () => {
         stopBroadcast();
       };
       
-      // If there were already watchers waiting (imperfect logic for late joiners, 
-      // but 'watcher' event handles new joins effectively. Late broadcast start handled by manual re-join or refresh on student side usually).
-      // Ideally, we'd signal 'broadcaster-ready' to existing sockets, but the current server logic handles 'watcher' -> 'offer' flow.
-
     } catch (err) {
       console.error("Error accessing display media:", err);
       setError("Failed to start screen share. Please ensure permissions are granted and you are using a secure context (HTTPS/localhost).");
@@ -201,7 +214,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack }) =>
       {/* Main Content */}
       <main className="flex-1 p-6 flex flex-col items-center justify-center overflow-hidden">
         {error && (
-           <div className="absolute top-24 bg-red-500/10 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg flex items-center gap-3 animate-in fade-in slide-in-from-top-4">
+           <div className="absolute top-24 bg-red-500/10 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg flex items-center gap-3 animate-in fade-in slide-in-from-top-4 z-50">
              <AlertCircle size={20} />
              {error}
            </div>

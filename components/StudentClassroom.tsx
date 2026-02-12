@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import React, { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { ArrowLeft, Maximize2, Minimize2, Wifi, WifiOff } from 'lucide-react';
@@ -16,9 +17,16 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack }) =>
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // CRITICAL FIX: Queue candidates until Remote Description is set to prevent "StateError"
+  const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
+  const isRemoteDescriptionSet = useRef(false);
 
   useEffect(() => {
-    socketRef.current = io('/', {
+    // Determine socket URL: Use env var if present (for Vercel + External Server), otherwise default to local relative path
+    const socketUrl = import.meta.env.VITE_SERVER_URL || '/';
+
+    socketRef.current = io(socketUrl, {
       transports: ['websocket', 'polling']
     });
 
@@ -34,6 +42,7 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack }) =>
     socket.on('disconnect', () => {
       setIsConnected(false);
       setStreamActive(false);
+      isRemoteDescriptionSet.current = false;
     });
 
     socket.on('offer', async (id: string, description: RTCSessionDescriptionInit) => {
@@ -41,6 +50,7 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack }) =>
       
       const peerConnection = new RTCPeerConnection(RTC_CONFIG);
       peerConnectionRef.current = peerConnection;
+      isRemoteDescriptionSet.current = false;
 
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
@@ -56,15 +66,39 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack }) =>
         }
       };
 
-      await peerConnection.setRemoteDescription(description);
-      const answer = await peerConnection.createAnswer();
-      await peerConnection.setLocalDescription(answer);
+      try {
+        await peerConnection.setRemoteDescription(description);
+        isRemoteDescriptionSet.current = true;
+        
+        // Process queued candidates now that description is set
+        iceCandidateQueue.current.forEach(async (candidate) => {
+          try {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch (e) {
+            console.error('Error adding queued candidate:', e);
+          }
+        });
+        iceCandidateQueue.current = []; // Clear queue
 
-      socket.emit('answer', id, peerConnection.localDescription);
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+
+        socket.emit('answer', id, peerConnection.localDescription);
+      } catch (e) {
+        console.error("Error handling offer:", e);
+      }
     });
 
     socket.on('candidate', (id: string, candidate: RTCIceCandidateInit) => {
-      peerConnectionRef.current?.addIceCandidate(new RTCIceCandidate(candidate));
+      const pc = peerConnectionRef.current;
+      if (pc) {
+        if (isRemoteDescriptionSet.current) {
+          pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error(e));
+        } else {
+          // Queue candidates if arrived before offer processing is complete
+          iceCandidateQueue.current.push(candidate);
+        }
+      }
     });
 
     socket.on('broadcaster', () => {
@@ -77,6 +111,7 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack }) =>
         peerConnectionRef.current.close();
         peerConnectionRef.current = null;
         setStreamActive(false);
+        isRemoteDescriptionSet.current = false;
         if (videoRef.current) videoRef.current.srcObject = null;
       }
     });
