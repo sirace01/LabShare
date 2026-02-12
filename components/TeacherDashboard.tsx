@@ -5,9 +5,10 @@ import { RTC_CONFIG, PeerConnectionMap } from '../types';
 
 interface TeacherDashboardProps {
   onBack: () => void;
+  serverUrl: string;
 }
 
-export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack }) => {
+export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack, serverUrl }) => {
   const [viewerCount, setViewerCount] = useState(0);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,10 +20,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack }) =>
 
   // Initialize Socket and WebRTC Listeners
   useEffect(() => {
-    // Determine socket URL: Use env var if present (for Vercel + External Server), otherwise default to local relative path
-    const socketUrl = (import.meta as any).env.VITE_SERVER_URL || '/';
+    console.log("Connecting to signaling server:", serverUrl);
     
-    socketRef.current = io(socketUrl, {
+    socketRef.current = io(serverUrl, {
       transports: ['websocket', 'polling']
     });
 
@@ -30,9 +30,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack }) =>
 
     socket.on('connect_error', (err) => {
       console.error("Socket connection error:", err);
-      if (!(import.meta as any).env.VITE_SERVER_URL) {
-         setError("Cannot connect to server. If deployed on Vercel, you must host the 'server.js' separately and set VITE_SERVER_URL.");
-      }
+      setError(`Connection failed to ${serverUrl}. Please check the URL in settings.`);
     });
 
     socket.on('connect', () => {
@@ -111,7 +109,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onBack }) =>
         localStreamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
-  }, []);
+  }, [serverUrl]); // Re-connect if serverUrl changes
 
   const startBroadcast = async () => {
     setError(null);

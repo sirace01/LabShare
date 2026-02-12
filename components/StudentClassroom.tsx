@@ -5,9 +5,10 @@ import { RTC_CONFIG } from '../types';
 
 interface StudentClassroomProps {
   onBack: () => void;
+  serverUrl: string;
 }
 
-export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack }) => {
+export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack, serverUrl }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [streamActive, setStreamActive] = useState(false);
@@ -22,10 +23,8 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack }) =>
   const isRemoteDescriptionSet = useRef(false);
 
   useEffect(() => {
-    // Determine socket URL: Use env var if present (for Vercel + External Server), otherwise default to local relative path
-    const socketUrl = (import.meta as any).env.VITE_SERVER_URL || '/';
-
-    socketRef.current = io(socketUrl, {
+    // Determine socket URL: Use prop passed from App component
+    socketRef.current = io(serverUrl, {
       transports: ['websocket', 'polling']
     });
 
@@ -36,6 +35,11 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack }) =>
       setIsConnected(true);
       // Initiate request to watch
       socket.emit('watcher');
+    });
+
+    socket.on('connect_error', (err) => {
+        console.error("Connection error:", err);
+        setIsConnected(false);
     });
 
     socket.on('disconnect', () => {
@@ -123,7 +127,7 @@ export const StudentClassroom: React.FC<StudentClassroomProps> = ({ onBack }) =>
       if (peerConnectionRef.current) peerConnectionRef.current.close();
       window.removeEventListener('resize', handleResize);
     };
-  }, []);
+  }, [serverUrl]);
 
   const handleResize = () => {
     // Optional logic to handle resizing if needed beyond CSS
